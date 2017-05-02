@@ -2,12 +2,15 @@
 #include <linux/netlink.h>
 #include <linux/skbuff.h>
 #include <linux/gfp.h>
+#include <linux/kprobes.h>
+#include <linux/ptrace.h>
 #include <net/sock.h>
 
 #define MYMGRP 22
 
 struct sock *nl_sk = NULL;
 static struct timer_list timer;
+struct kprobe *kp;
 
 void nl_send_msg(unsigned long data) {
     struct sk_buff *skb_out;
@@ -15,6 +18,8 @@ void nl_send_msg(unsigned long data) {
     int res;
     char *msg = "hello from kernel!\n";
     int msg_size = strlen(msg);
+
+    printk(KERN_INFO "sending... ");
 
     skb_out = nlmsg_new(
         NLMSG_ALIGN(msg_size), // @payload: size of the message payload
@@ -46,11 +51,29 @@ void nl_send_msg(unsigned long data) {
         printk(KERN_INFO "Error while sending to user: %d\n", res);
     } else {
         mod_timer(&timer, jiffies + msecs_to_jiffies(1));
+        printk(KERN_INFO "Send ok\n");
     }
 }
 
+//int kprobe_print(struct kprobe *kp, struct pt_regs *r) {
+//    printk(KERN_INFO "hit netlink_broadcast\n");
+//    return 0;
+//}
+//
 static int __init nl_init(void) {
+    //int ok;
     struct netlink_kernel_cfg cfg = {};
+    //struct kprobe k = {};
+    //k.symbol_name = "netlink_broadcast";
+    //k.pre_handler = &kprobe_print;
+
+    //kp = kmalloc(sizeof(struct kprobe), GFP_KERNEL);
+    //memcpy(kp, &k, sizeof(struct kprobe));
+    //ok = register_kprobe(kp);
+    //if (ok < 0) {
+    //    printk(KERN_ALERT "Error creating kprobe: %d.\n", ok);
+    //    return ok;
+    //}
     
     printk(KERN_INFO "init NL\n");
     nl_sk = netlink_kernel_create(&init_net, NETLINK_USERSOCK, &cfg);
@@ -71,6 +94,7 @@ static int __init nl_init(void) {
 
 static void __exit nl_exit(void) {
     printk(KERN_INFO "exit NL\n");
+    //unregister_kprobe(kp);
     del_timer_sync(&timer);
     netlink_kernel_release(nl_sk);
 }

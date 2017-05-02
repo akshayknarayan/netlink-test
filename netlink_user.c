@@ -36,7 +36,7 @@ int nl_open(void) {
     return sock;
 }
 
-void nl_recv(int sock) {
+void nl_recv(int sock, int count) {
     struct sockaddr_nl nladdr;
     struct msghdr msg;
     struct iovec iov;
@@ -50,23 +50,26 @@ void nl_recv(int sock) {
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
 
+    printf("[%d] waiting... ", count);
     ret = recvmsg(sock, &msg, 0);
     if (ret < 0)
         printf("ret < 0.\n");
     else
-        printf("Received message payload: %s\n", (char*) NLMSG_DATA((struct nlmsghdr *) &buffer));
+        printf("received message payload: %s\n", (char*) NLMSG_DATA((struct nlmsghdr *) &buffer));
 }
 
 int main(int argc, char *argv[]) {
     int nls;
+    int count = 0;
 
     nls = nl_open();
     if (nls < 0)
         return nls;
 
     while (1) {
-        nl_recv(nls);
-        usleep(5000);
+        nl_recv(nls, count);
+        sleep(1);
+        count++;
     }
 
     return 0;
