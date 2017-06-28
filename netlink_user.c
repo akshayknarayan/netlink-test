@@ -50,12 +50,17 @@ void nl_recv(int sock, int count) {
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
 
-    printf("[%d] waiting... ", count);
+    printf("[%d] ", count);
     ret = recvmsg(sock, &msg, 0);
-    if (ret < 0)
-        printf("ret < 0.\n");
-    else
-        printf("received message payload: %s\n", (char*) NLMSG_DATA((struct nlmsghdr *) &buffer));
+    if (ret < 0) {
+        printf("recv: ret < 0.\n");
+    } else {
+        // echo message
+        ret = sendmsg(sock, &msg, 0);
+        if (ret < 0) {
+            printf("sending: ret < 0.\n");
+        }
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -68,7 +73,6 @@ int main(int argc, char *argv[]) {
 
     while (1) {
         nl_recv(nls, count);
-        sleep(1);
         count++;
     }
 

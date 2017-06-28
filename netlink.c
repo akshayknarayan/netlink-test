@@ -4,6 +4,7 @@
 #include <linux/gfp.h>
 #include <linux/kprobes.h>
 #include <linux/ptrace.h>
+#include <linux/time.h>
 #include <net/sock.h>
 
 #define MYMGRP 22
@@ -12,18 +13,32 @@ struct sock *nl_sk = NULL;
 static struct timer_list timer;
 struct kprobe *kp;
 
+/* Receive echo messages from userspace 
+ * compute and log message RTT
+ */
+void nl_recv_msg(struct sk_buff *skb) {
+    ktime_t now, then;
+    struct nlmsghdr *nlh = nlmsg_hdr(skb);
+    now = ktime_get();
+    then = *((ktime_t*) nlmsg_data(nlh));
+    printk(KERN_INFO "netlink_rtt: %lld\n", (s64)(now) - (s64)(then));
+}
+
+/* Send message to userspace
+ * payload: time of message send
+ */
 void nl_send_msg(unsigned long data) {
     struct sk_buff *skb_out;
     struct nlmsghdr *nlh;
     int res;
-    char *msg = "hello from kernel!\n";
-    int msg_size = strlen(msg);
+    int msg_size;
 
-    printk(KERN_INFO "sending... ");
+    ktime_t now = ktime_get();
+    msg_size = sizeof(ktime_t);
 
     skb_out = nlmsg_new(
         NLMSG_ALIGN(msg_size), // @payload: size of the message payload
-        GFP_KERNEL             // @flags: the type of memory to allocate.
+        GFP_NOWAIT             // @flags: the type of memory to allocate.
     );
     if (!skb_out) {
         printk(KERN_ERR "Failed to allocate new skb\n");
@@ -39,41 +54,25 @@ void nl_send_msg(unsigned long data) {
         0           // @flags: message flags
     );
 
-    memcpy(nlmsg_data(nlh), msg, msg_size+1);
+    memcpy(nlmsg_data(nlh), &now, msg_size);
     res = nlmsg_multicast(
             nl_sk,     // @sk: netlink socket to spread messages to
             skb_out,   // @skb: netlink message as socket buffer
             0,         // @portid: own netlink portid to avoid sending to yourself
             MYMGRP,    // @group: multicast group id
-            GFP_KERNEL // @flags: allocation flags
+            GFP_NOWAIT // @flags: allocation flags
     );
     if (res < 0) {
         printk(KERN_INFO "Error while sending to user: %d\n", res);
     } else {
-        mod_timer(&timer, jiffies + msecs_to_jiffies(1));
-        printk(KERN_INFO "Send ok\n");
+        mod_timer(&timer, jiffies + msecs_to_jiffies(10));
     }
 }
 
-//int kprobe_print(struct kprobe *kp, struct pt_regs *r) {
-//    printk(KERN_INFO "hit netlink_broadcast\n");
-//    return 0;
-//}
-//
 static int __init nl_init(void) {
-    //int ok;
-    struct netlink_kernel_cfg cfg = {};
-    //struct kprobe k = {};
-    //k.symbol_name = "netlink_broadcast";
-    //k.pre_handler = &kprobe_print;
-
-    //kp = kmalloc(sizeof(struct kprobe), GFP_KERNEL);
-    //memcpy(kp, &k, sizeof(struct kprobe));
-    //ok = register_kprobe(kp);
-    //if (ok < 0) {
-    //    printk(KERN_ALERT "Error creating kprobe: %d.\n", ok);
-    //    return ok;
-    //}
+    struct netlink_kernel_cfg cfg = {
+           .input = nl_recv_msg,
+    };
     
     printk(KERN_INFO "init NL\n");
     nl_sk = netlink_kernel_create(&init_net, NETLINK_USERSOCK, &cfg);
@@ -94,7 +93,6 @@ static int __init nl_init(void) {
 
 static void __exit nl_exit(void) {
     printk(KERN_INFO "exit NL\n");
-    //unregister_kprobe(kp);
     del_timer_sync(&timer);
     netlink_kernel_release(nl_sk);
 }
